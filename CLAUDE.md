@@ -4,11 +4,8 @@
 - `__builtins__.py` に全ての定義（Items, Entities, Unlocks, 関数など）がある
 
 ## 作物コスト
-| 作物 | コスト |
-|------|--------|
-| Carrot | Wood 4 + Hay 4 |
-| Pumpkin | Carrot 1 |
-| Sunflower | Carrot 1 |
+`get_cost(entity)` で取得すること。ハードコーディング禁止。
+例: `get_cost(Entities.Pumpkin)` → `{Items.Carrot: 1}`
 
 ## 作物 → アイテム
 | Entity | Item |
