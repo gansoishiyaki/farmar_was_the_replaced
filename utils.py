@@ -1,14 +1,7 @@
 DirEW = East   # 初期は右へ
 
-def is_origin():
-	return get_pos_x() == 0 and get_pos_y() == 0
-
-def next():
+def next(size, x, y):
 	global DirEW
-
-	size = get_world_size()
-	x = get_pos_x()
-	y = get_pos_y()
 
 	going_up = (x % 2 == 0)
 

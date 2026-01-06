@@ -12,11 +12,12 @@ def exec_entity(type, x, y):
 	elif type == Entities.Tree:
 		exec_tree()
 	elif type == Entities.Pumpkin:
-		pumpkin.exec_cell(x, y)
+		return pumpkin.exec_cell(x, y)
 	elif type == Entities.Sunflower:
 		exec_sunflower()
 	else:
 		exec_grass()
+	return True
 
 # サイクル進行中かどうか（進行中ならプラン更新をスキップ）
 def is_cycle_in_progress():
@@ -124,7 +125,8 @@ def exec_sunflower():
 
 def exec_cell(x, y):
 	expected = get_type(x, y)
-	exec_entity(expected, x, y)
+	result = exec_entity(expected, x, y)
 	# 水やり
 	if get_water() < 0.75 and num_items(Items.Water) > 0:
 		use_item(Items.Water)
+	return result

@@ -4,17 +4,10 @@ import utils
 
 # 素材からカボチャエリアサイズを計算（外周はヒマワリ）
 def size():
-	world_size = get_world_size()
-	# 外周はヒマワリなので、カボチャは (size-1) x (size-1)
-	max_size = world_size - 1
-
-	# 最大サイズ分のカボチャが作れるかチェック（枯れ修復のため2倍で見積もる）
-	need = max_size * max_size * 2
-
-	# 最大サイズが作れなければカボチャエリアなし
-	if craft.calc_can_make(Entities.Pumpkin) < need:
+	max_size = get_world_size() - 1
+	# 最大サイズが作れなければカボチャエリアなし（枯れ修復のため2倍で見積もる）
+	if craft.calc_can_make(Entities.Pumpkin) < max_size * max_size * 2:
 		return 0
-
 	return max_size
 
 def get_size():
@@ -38,15 +31,8 @@ def is_corner(x, y):
 	return (x == 0 or x == pumpkin_size - 1) and (y == 0 or y == pumpkin_size - 1)
 
 def get_confirmed_count():
-	# statesでPumpkinかDead_Pumpkinが記録されているセルの数
-	count = 0
-	pumpkin_size = get_size()
-	for px in range(pumpkin_size):
-		for py in range(pumpkin_size):
-			actual = globals.get(px, py)["actual"]
-			if actual == Entities.Pumpkin or actual == Entities.Dead_Pumpkin:
-				count += 1
-	return count
+	# pumpkin_confirmedのサイズを返すだけ（O(1)）
+	return len(globals.pumpkin_confirmed)
 
 def exec_cell(x, y):
 	# カボチャモード同期収穫処理
@@ -59,16 +45,21 @@ def exec_cell(x, y):
 		# 収穫後は空セル → elseでカボチャを植える
 		etype = None
 
-	# 枯れたカボチャ（1周後にまとめて修復）
+	# 枯れたカボチャ（収穫して即座に再植え）
 	if etype == Entities.Dead_Pumpkin:
+		harvest()
+		plant(Entities.Pumpkin)
 		globals.pumpkin_dead.append((x, y))
-		globals.set(x, y, etype, False, None)
+		globals.pumpkin_confirmed[(x, y)] = True
+
 	# 収穫可能なカボチャ
 	elif etype == Entities.Pumpkin and can_harvest():
-		globals.set(x, y, etype, True, None)
+		globals.pumpkin_confirmed[(x, y)] = True
+
 	# 育成中のカボチャ
 	elif etype == Entities.Pumpkin:
-		globals.set(x, y, etype, False, None)
+		globals.pumpkin_confirmed[(x, y)] = True
+
 	# 空セル → カボチャを植える（状態未確認なのでsetしない）
 	else:
 		if get_ground_type() != Grounds.Soil:
@@ -83,10 +74,14 @@ def exec_cell(x, y):
 		globals.pumpkin_scan_complete = True
 		fix_dead()
 
+	# 収穫サイクル完了後は原点で待機
+	return not globals.need_update_plan
+
 def clear_area_states():
 	globals.pumpkin_scan_complete = False
 	globals.pumpkin_dead = []
-	globals.pumpkin_last_dead = None
+	globals.pumpkin_confirmed = {}
+	globals.clear()
 	# プラン更新フラグを立てる（次サイクルで再計算）
 	globals.need_update_plan = True
 	# 原点に移動して次の周回を開始
@@ -98,9 +93,6 @@ def fix_dead():
 		check_and_harvest()
 		return
 
-	# 最後の要素を記録（2以上から一気に0になる場合に備える）
-	globals.pumpkin_last_dead = globals.pumpkin_dead[-1]
-
 	still_dead = []
 	for px, py in globals.pumpkin_dead:
 		utils.goto(px, py)
@@ -110,12 +102,12 @@ def fix_dead():
 		if etype == Entities.Pumpkin:
 			continue
 
-		# 枯れたカボチャなら修復を試みる
+		# また枯れてたら収穫してから植え直し
 		if etype == Entities.Dead_Pumpkin:
 			harvest()
-			plant(Entities.Pumpkin)
+		plant(Entities.Pumpkin)
 
-		# まだパンプキンじゃないならstill_deadに残す
+		# まだパンプキンじゃないのでstill_deadに残す
 		still_dead.append((px, py))
 
 	globals.pumpkin_dead = still_dead
@@ -126,11 +118,17 @@ def fix_dead():
 	check_and_harvest()
 
 def check_and_harvest():
-	# 最後に修復したカボチャが収穫可能になるまで待機
-	if globals.pumpkin_last_dead != None:
-		px, py = globals.pumpkin_last_dead
-		utils.goto(px, py)
-		while not can_harvest():
-			utils.wait()
+	# (0,0)と(0, last_y)のmeasure()が同じになるまで待機
+	pumpkin_size = get_size()
+	last_y = pumpkin_size - 1
+
+	while True:
+		utils.goto(0, 0)
+		first_id = measure()
+		utils.goto(0, last_y)
+		last_id = measure()
+		if first_id == last_id:
+			break
+
 	harvest()
 	clear_area_states()
