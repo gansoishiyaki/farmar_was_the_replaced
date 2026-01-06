@@ -3,8 +3,8 @@
 # 全マスの計画タイプを記録
 states = {}
 
-# 目標エンティティ（最終的に作りたいもの）
-target_entity = None
+# 目標（エンティティまたはアイテム）
+target_item = None
 
 # プラン更新フラグ（Trueなら次の原点でupdate_plan()実行）
 need_update_plan = True

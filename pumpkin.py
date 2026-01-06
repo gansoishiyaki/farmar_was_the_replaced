@@ -93,13 +93,13 @@ def fix_dead():
 		check_and_harvest()
 		return
 
-	still_dead = []
-	for px, py in globals.pumpkin_dead:
+	for px, py in list(globals.pumpkin_dead):
 		utils.goto(px, py)
 		etype = get_entity_type()
 
 		# パンプキンになったら除外
 		if etype == Entities.Pumpkin:
+			globals.pumpkin_dead.remove((px, py))
 			continue
 
 		# また枯れてたら収穫してから植え直し
@@ -107,14 +107,10 @@ def fix_dead():
 			harvest()
 		plant(Entities.Pumpkin)
 
-		# まだパンプキンじゃないのでstill_deadに残す
-		still_dead.append((px, py))
-
-	globals.pumpkin_dead = still_dead
 	if len(globals.pumpkin_dead) > 0:
 		fix_dead()
 		return
-	
+
 	check_and_harvest()
 
 def check_and_harvest():

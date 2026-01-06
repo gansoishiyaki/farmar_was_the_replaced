@@ -21,33 +21,30 @@ def exec_entity(type, x, y):
 
 # サイクル進行中かどうか（進行中ならプラン更新をスキップ）
 def is_cycle_in_progress():
-	target = globals.target_entity
-	if target == Entities.Pumpkin:
-		# カボチャはフラグで制御
+	if globals.target_item == Entities.Pumpkin and pumpkin.is_active():
+		# カボチャモード中はフラグで制御
 		return not globals.need_update_plan
-	# カボチャ以外は毎周更新（サイクルなし）
+	# カボチャモード以外は毎周更新（サイクルなし）
 	return False
 
 # stateから取得（update_plan()で事前計算済み）
-def get_type(x, y):
+def get_type(x, y, size):
 	etype = globals.get_type(x, y)
 	if etype != None:
 		return etype
 	# 未計算の場合はその場で計算
-	return calc_type(x, y)
+	return calc_type(x, y, size)
 
 # 一周開始時に全マスの栽培計画を更新
-def update_plan():
-	size = get_world_size()
+def update_plan(size):
 	for x in range(size):
 		for y in range(size):
-			etype = calc_type(x, y)
+			etype = calc_type(x, y, size)
 			globals.set_type(x, y, etype)
 	globals.need_update_plan = False
 
 # 実際の計算ロジック
-def calc_type(x, y):
-	size = get_world_size()
+def calc_type(x, y, size):
 	pumpkin_size = pumpkin.get_size()
 
 	# カボチャモード: 外周はヒマワリ、内側はカボチャ
@@ -57,7 +54,7 @@ def calc_type(x, y):
 		return Entities.Pumpkin
 
 	# カボチャが目標だがモードに入れない → 人参の素材を作る
-	if globals.target_entity == Entities.Pumpkin:
+	if globals.target_item == Entities.Pumpkin:
 		required = craft.get_required_entity(Entities.Carrot)
 		if required == Entities.Tree or required == Entities.Grass:
 			if (x + y) % 2 == 0:
@@ -72,8 +69,8 @@ def calc_type(x, y):
 		if craft.calc_can_make(Entities.Sunflower) >= sunflower_count:
 			return Entities.Sunflower
 
-	# 目標エンティティから再帰的に必要なものを計算
-	required = craft.get_required_entity(globals.target_entity)
+	# 目標から再帰的に必要なものを計算
+	required = craft.get_required_entity(globals.target_item)
 	if required != None:
 		# TreeとGrassは市松模様
 		if required == Entities.Tree or required == Entities.Grass:
@@ -123,8 +120,8 @@ def exec_sunflower():
 		till()
 	plant(Entities.Sunflower)
 
-def exec_cell(x, y):
-	expected = get_type(x, y)
+def exec_cell(x, y, size):
+	expected = get_type(x, y, size)
 	result = exec_entity(expected, x, y)
 	# 水やり
 	if get_water() < 0.75 and num_items(Items.Water) > 0:
