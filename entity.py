@@ -1,114 +1,35 @@
 import pumpkin
-import state
+import globals
+import craft
 
-def get_unlocks_entity_types():
-	res = [Entities.Bush]
-	
-	if num_unlocked(Unlocks.Grass):
-		res.append(Entities.Grass)
-	if num_unlocked(Unlocks.Trees):
-		res.append(Entities.Tree)
-	if num_unlocked(Unlocks.Carrots):
-		res.append(Entities.Carrot)
-	if num_unlocked(Unlocks.Pumpkins):
-		res.append(Entities.Pumpkin)
-	if num_unlocked(Unlocks.Sunflowers):
-		res.append(Entities.Sunflower)
-	return res
-
-def get_unlocks_item_types():
-	res = [Items.Hay]
-
-	if num_unlocked(Unlocks.Carrots):
-		res.append(Items.Carrot)
-	if num_unlocked(Unlocks.Trees):
-		res.append(Items.Wood)
-	if num_unlocked(Unlocks.Pumpkins):
-		res.append(Items.Pumpkin)
-	if num_unlocked(Unlocks.Sunflowers):
-		res.append(Items.Power)
-	return res
-
-def get_func(type):
+def exec_entity(type, x, y):
 	if type == Entities.Grass:
-		return exec_grass
-	if type == Entities.Bush:
-		return exec_bush
-	if type == Entities.Carrot:
-		return exec_carrot
-	if type == Entities.Tree:
-		return exec_tree
-	if type == Entities.Pumpkin:
-		return exec_pumpkin
-	if type == Entities.Sunflower:
-		return exec_sunflower
-	return exec_grass
+		exec_grass()
+	elif type == Entities.Bush:
+		exec_bush()
+	elif type == Entities.Carrot:
+		exec_carrot()
+	elif type == Entities.Tree:
+		exec_tree()
+	elif type == Entities.Pumpkin:
+		pumpkin.exec_cell(x, y)
+	elif type == Entities.Sunflower:
+		exec_sunflower()
+	else:
+		exec_grass()
 
-def item_to_entity(item):
-	if item == Items.Hay:
-		return Entities.Grass
-	if item == Items.Wood:
-		return Entities.Tree
-	if item == Items.Carrot:
-		return Entities.Carrot
-	if item == Items.Pumpkin:
-		return Entities.Pumpkin
-	if item == Items.Power:
-		return Entities.Sunflower
-	return None
-
-# エンティティを作れる数を計算
-def calc_can_make(entity, max_count):
-	cost = get_cost(entity)
-	if cost == None:
-		return max_count
-	can_make = max_count
-	for item in cost:
-		available = num_items(item) // cost[item]
-		if available < can_make:
-			can_make = available
-	return can_make
-
-# ヒマワリエリアサイズを計算（11本以上確保）
-def calc_sunflower_width(pumpkin_size):
-	if pumpkin_size == 0:
-		return 0
-	# カボチャの高さに合わせて幅を計算
-	# 11本以上: width * pumpkin_size >= 11
-	width = 11 // pumpkin_size
-	if width * pumpkin_size < 11:
-		width = width + 1
-	return width
-
-# 優先度リストを取得（unlock順の逆、ヒマワリ/基礎素材除外）
-def get_priorities():
-	unlocked = get_unlocks_entity_types()
-	exclude = [Entities.Sunflower, Entities.Tree, Entities.Grass, Entities.Bush]
-	result = []
-	for i in range(len(unlocked) - 1, -1, -1):
-		entity = unlocked[i]
-		if entity not in exclude:
-			result.append(entity)
-	return result
-
-# 優先度順にエンティティを取得
-def get_priority_entity():
-	priorities = get_priorities()
-	for entity in priorities:
-		cost = get_cost(entity)
-		if cost == None:
-			return entity
-		can_make = True
-		for item in cost:
-			if num_items(item) < cost[item]:
-				can_make = False
-		if can_make:
-			return entity
-	return None  # 基礎素材へ
+# サイクル進行中かどうか（進行中ならプラン更新をスキップ）
+def is_cycle_in_progress():
+	target = globals.target_entity
+	if target == Entities.Pumpkin:
+		# カボチャはフラグで制御
+		return not globals.need_update_plan
+	# カボチャ以外は毎周更新（サイクルなし）
+	return False
 
 # stateから取得（update_plan()で事前計算済み）
 def get_type(x, y):
-	etype = state.get_type(x, y)
+	etype = globals.get_type(x, y)
 	if etype != None:
 		return etype
 	# 未計算の場合はその場で計算
@@ -120,80 +41,90 @@ def update_plan():
 	for x in range(size):
 		for y in range(size):
 			etype = calc_type(x, y)
-			state.set_type(x, y, etype)
+			globals.set_type(x, y, etype)
+	globals.need_update_plan = False
 
 # 実際の計算ロジック
 def calc_type(x, y):
-	# エリアサイズを決定（pumpkinモジュールのキャッシュを使用）
+	size = get_world_size()
 	pumpkin_size = pumpkin.get_size()
-	sunflower_width = calc_sunflower_width(pumpkin_size)
 
-	# 左上: カボチャ（正方形）
-	if x < pumpkin_size and y < pumpkin_size:
+	# カボチャモード: 外周はヒマワリ、内側はカボチャ
+	if pumpkin_size > 0:
+		if x == size - 1 or y == size - 1:
+			return Entities.Sunflower
 		return Entities.Pumpkin
 
-	# カボチャの右: ヒマワリ（11本以上、高さはカボチャと同じ）
-	if x >= pumpkin_size and x < pumpkin_size + sunflower_width and y < pumpkin_size:
-		return Entities.Sunflower
+	# カボチャが目標だがモードに入れない → 人参の素材を作る
+	if globals.target_entity == Entities.Pumpkin:
+		required = craft.get_required_entity(Entities.Carrot)
+		if required == Entities.Tree or required == Entities.Grass:
+			if (x + y) % 2 == 0:
+				return Entities.Tree
+			else:
+				return Entities.Grass
+		return required
 
-	# 残りエリア: 優先度順に判定
-	priorities = get_priorities()
-	for ent in priorities:
-		if calc_can_make(ent, 1) >= 1:
-			if ent == Entities.Pumpkin:
-				# カボチャエリア確保できてれば基礎素材へ
-				if pumpkin_size > 0:
-					break
-				continue
-			return ent
+	# 外周でヒマワリの素材があればヒマワリ（外周全体分の素材が必要）
+	if x == size - 1 or y == size - 1:
+		sunflower_count = size * 2 - 1
+		if craft.calc_can_make(Entities.Sunflower) >= sunflower_count:
+			return Entities.Sunflower
 
-	# 基礎素材（フォールバック or カボチャ補充）
+	# 目標エンティティから再帰的に必要なものを計算
+	required = craft.get_required_entity(globals.target_entity)
+	if required != None:
+		# TreeとGrassは市松模様
+		if required == Entities.Tree or required == Entities.Grass:
+			if (x + y) % 2 == 0:
+				return Entities.Tree
+			else:
+				return Entities.Grass
+		return required
+
+	# フォールバック: 基礎素材
 	if (x + y) % 2 == 0:
 		return Entities.Tree
 	else:
 		return Entities.Grass
 
 def exec_grass():
+	if can_harvest():
+		harvest()
 	if get_ground_type() != Grounds.Grassland:
 		till()
 
 def exec_carrot():
+	if can_harvest():
+		harvest()
 	if get_ground_type() != Grounds.Soil:
 		till()
 	plant(Entities.Carrot)
 
 def exec_bush():
+	if can_harvest():
+		harvest()
 	if get_ground_type() != Grounds.Grassland:
 		till()
 	plant(Entities.Bush)
-	
+
 def exec_tree():
+	if can_harvest():
+		harvest()
 	if get_ground_type() != Grounds.Grassland:
 		till()
 	plant(Entities.Tree)
 
-def exec_pumpkin():
-	if get_ground_type() != Grounds.Soil:
-		till()
-	plant(Entities.Pumpkin)
-
 def exec_sunflower():
+	if can_harvest():
+		harvest()
 	if get_ground_type() != Grounds.Soil:
 		till()
 	plant(Entities.Sunflower)
 
-def exec_cell():
-	x = get_pos_x()
-	y = get_pos_y()
-
-	# カボチャモードの場合のみ特別処理
-	if pumpkin.is_area(x, y):
-		pumpkin.exec_cell(x, y)
-
-	# 通常エリアは普通に収穫
-	elif can_harvest():
-		harvest()
-
+def exec_cell(x, y):
+	expected = get_type(x, y)
+	exec_entity(expected, x, y)
+	# 水やり
 	if get_water() < 0.75 and num_items(Items.Water) > 0:
 		use_item(Items.Water)
-

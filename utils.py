@@ -50,8 +50,5 @@ def goto(x, y):
 		else:
 			move(South)
 
-# 予定と違う作物なら収穫
-def harvest_if_mismatch(expected):
-	if get_entity_type() != expected and can_harvest():
-		harvest()
-		
+def wait():
+	pass
