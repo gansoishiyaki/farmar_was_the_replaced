@@ -25,3 +25,6 @@
 ## 地面
 - `Grounds.Grassland`: Grass, Bush, Tree用
 - `Grounds.Soil`: Carrot, Pumpkin, Sunflower, Cactus用（`till()`で切替）
+
+## 定数
+- マジックナンバーは `const.py` に定義すること

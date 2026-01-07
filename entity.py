@@ -1,129 +1,115 @@
 import pumpkin
 import globals
 import craft
-
-def exec_entity(type, x, y):
-	if type == Entities.Grass:
-		exec_grass()
-	elif type == Entities.Bush:
-		exec_bush()
-	elif type == Entities.Carrot:
-		exec_carrot()
-	elif type == Entities.Tree:
-		exec_tree()
-	elif type == Entities.Pumpkin:
-		return pumpkin.exec_cell(x, y)
-	elif type == Entities.Sunflower:
-		exec_sunflower()
-	else:
-		exec_grass()
-	return True
+import const
 
 # サイクル進行中かどうか（進行中ならプラン更新をスキップ）
 def is_cycle_in_progress():
-	if globals.target_item == Entities.Pumpkin and pumpkin.is_active():
+	if globals.actual_target == Entities.Pumpkin:
 		# カボチャモード中はフラグで制御
 		return not globals.need_update_plan
 	# カボチャモード以外は毎周更新（サイクルなし）
 	return False
 
-# stateから取得（update_plan()で事前計算済み）
-def get_type(x, y, size):
-	etype = globals.get_type(x, y)
-	if etype != None:
-		return etype
-	# 未計算の場合はその場で計算
-	return calc_type(x, y, size)
+# 実際のターゲットを計算
+def calc_actual_target():
+	# ひまわりが少ない & 全マス分のコストがある → 全部ひまわり（最優先）
+	size = get_world_size()
+	total_cells = size * size
+	
+	# ひまわりモード中は5倍のしきい値を使用（ヒステリシス）
+	threshold = const.SUNFLOWER_POWER_THRESHOLD
+	if globals.actual_target == Entities.Sunflower:
+		threshold = threshold * const.SUNFLOWER_HYSTERESIS
 
-# 一周開始時に全マスの栽培計画を更新
-def update_plan(size):
-	for x in range(size):
-		for y in range(size):
-			etype = calc_type(x, y, size)
-			globals.set_type(x, y, etype)
-	globals.need_update_plan = False
-
-# 実際の計算ロジック
-def calc_type(x, y, size):
-	pumpkin_size = pumpkin.get_size()
-
-	# カボチャモード: 外周はヒマワリ、内側はカボチャ
-	if pumpkin_size > 0:
-		if x == size - 1 or y == size - 1:
+	if num_items(Items.Power) < threshold:
+		if craft.calc_can_make(Entities.Sunflower) >= total_cells:
 			return Entities.Sunflower
+
+	# カボチャモード
+	pumpkin_size = pumpkin.get_size()
+	if pumpkin_size > 0:
 		return Entities.Pumpkin
 
 	# カボチャが目標だがモードに入れない → 人参の素材を作る
 	if globals.target_item == Entities.Pumpkin:
-		required = craft.get_required_entity(Entities.Carrot)
-		if required == Entities.Tree or required == Entities.Grass:
-			if (x + y) % 2 == 0:
-				return Entities.Tree
-			else:
-				return Entities.Grass
-		return required
-
-	# 外周でヒマワリの素材があればヒマワリ（外周全体分の素材が必要）
-	if x == size - 1 or y == size - 1:
-		sunflower_count = size * 2 - 1
-		if craft.calc_can_make(Entities.Sunflower) >= sunflower_count:
-			return Entities.Sunflower
+		return craft.get_required_entity(Entities.Carrot)
 
 	# 目標から再帰的に必要なものを計算
 	required = craft.get_required_entity(globals.target_item)
 	if required != None:
-		# TreeとGrassは市松模様
-		if required == Entities.Tree or required == Entities.Grass:
-			if (x + y) % 2 == 0:
-				return Entities.Tree
-			else:
-				return Entities.Grass
 		return required
 
 	# フォールバック: 基礎素材
-	if (x + y) % 2 == 0:
-		return Entities.Tree
+	return Entities.Tree
+
+# 一周開始時に栽培計画を更新
+def update_plan():
+	# 実際のターゲットを計算
+	globals.actual_target = calc_actual_target()
+
+	# コンパニオンモード判定
+	target = globals.actual_target
+	globals.companion_enabled = (target == Entities.Grass or target == Entities.Tree or target == Entities.Carrot)
+
+	globals.need_update_plan = False
+
+# メイン処理
+def exec_cell(x, y):
+	target = globals.actual_target
+
+	# カボチャは専用処理
+	if target == Entities.Pumpkin:
+		result = pumpkin.exec_cell(x, y)
+		do_water()
+		return result
+
+	do_plant(x, y, target)
+	do_water()
+	return True
+
+# 統合植え付け処理
+def do_plant(x, y, entity_type):
+	# 収穫
+	if can_harvest():
+		harvest()
+		# 収穫したら記録をクリア
+		if (x, y) in globals.planted:
+			globals.planted.pop((x, y))
+		if (x, y) in globals.companion_requests:
+			globals.companion_requests.pop((x, y))
+
+	# コンパニオンモード
+	if globals.companion_enabled:
+		# 植え済みスキップ
+		if (x, y) in globals.planted:
+			return
+		# 素材チェック
+		if entity_type == Entities.Carrot and num_items(Items.Carrot) <= 0:
+			return
+		# 隣接からの要望があれば優先
+		if (x, y) in globals.companion_requests:
+			entity_type = globals.companion_requests[(x, y)]
+
+	# 地面準備
+	if entity_type == Entities.Grass or entity_type == Entities.Tree or entity_type == Entities.Bush:
+		if get_ground_type() != Grounds.Grassland:
+			till()
 	else:
-		return Entities.Grass
+		if get_ground_type() != Grounds.Soil:
+			till()
 
-def exec_grass():
-	if can_harvest():
-		harvest()
-	if get_ground_type() != Grounds.Grassland:
-		till()
+	# 植え付け
+	plant(entity_type)
 
-def exec_carrot():
-	if can_harvest():
-		harvest()
-	if get_ground_type() != Grounds.Soil:
-		till()
-	plant(Entities.Carrot)
+	# コンパニオン要望を記録（即座には行かない）
+	if globals.companion_enabled:
+		globals.planted[(x, y)] = entity_type
+		result = get_companion()
+		if result != None:
+			companion, (cx, cy) = result
+			globals.companion_requests[(cx, cy)] = companion
 
-def exec_bush():
-	if can_harvest():
-		harvest()
-	if get_ground_type() != Grounds.Grassland:
-		till()
-	plant(Entities.Bush)
-
-def exec_tree():
-	if can_harvest():
-		harvest()
-	if get_ground_type() != Grounds.Grassland:
-		till()
-	plant(Entities.Tree)
-
-def exec_sunflower():
-	if can_harvest():
-		harvest()
-	if get_ground_type() != Grounds.Soil:
-		till()
-	plant(Entities.Sunflower)
-
-def exec_cell(x, y, size):
-	expected = get_type(x, y, size)
-	result = exec_entity(expected, x, y)
-	# 水やり
+def do_water():
 	if get_water() < 0.75 and num_items(Items.Water) > 0:
 		use_item(Items.Water)
-	return result

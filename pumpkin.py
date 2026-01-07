@@ -2,9 +2,9 @@ import globals
 import craft
 import utils
 
-# 素材からカボチャエリアサイズを計算（外周はヒマワリ）
+# 素材からカボチャエリアサイズを計算
 def size():
-	max_size = get_world_size() - 1
+	max_size = get_world_size()
 	# 最大サイズが作れなければカボチャエリアなし（枯れ修復のため2倍で見積もる）
 	if craft.calc_can_make(Entities.Pumpkin) < max_size * max_size * 2:
 		return 0
@@ -38,33 +38,25 @@ def exec_cell(x, y):
 	# カボチャモード同期収穫処理
 	etype = get_entity_type()
 
-	# カボチャ以外が植えられていたら収穫
-	if etype != None and etype != Entities.Pumpkin and etype != Entities.Dead_Pumpkin:
+	# カボチャ以外 or 空セル → dead扱い（後で再訪問）
+	if etype != Entities.Pumpkin and etype != Entities.Dead_Pumpkin:
 		if can_harvest():
 			harvest()
-		# 収穫後は空セル → elseでカボチャを植える
-		etype = None
 
 	# 枯れたカボチャ（収穫して即座に再植え）
 	if etype == Entities.Dead_Pumpkin:
 		harvest()
 		plant(Entities.Pumpkin)
-		globals.pumpkin_dead.append((x, y))
-		globals.pumpkin_confirmed[(x, y)] = True
 
-	# 収穫可能なカボチャ
-	elif etype == Entities.Pumpkin and can_harvest():
-		globals.pumpkin_confirmed[(x, y)] = True
-
-	# 育成中のカボチャ
-	elif etype == Entities.Pumpkin:
-		globals.pumpkin_confirmed[(x, y)] = True
-
-	# 空セル → カボチャを植える（状態未確認なのでsetしない）
-	else:
+	# 空セル → カボチャを植える
+	elif etype != Entities.Pumpkin:
 		if get_ground_type() != Grounds.Soil:
 			till()
 		plant(Entities.Pumpkin)
+
+	# 分岐に関わらず確認済みにする
+	globals.pumpkin_dead.append((x, y))
+	globals.pumpkin_confirmed[(x, y)] = True
 
 	# エリア1周したら枯れたカボチャを修復
 	if globals.pumpkin_scan_complete:
@@ -81,7 +73,6 @@ def clear_area_states():
 	globals.pumpkin_scan_complete = False
 	globals.pumpkin_dead = []
 	globals.pumpkin_confirmed = {}
-	globals.clear()
 	# プラン更新フラグを立てる（次サイクルで再計算）
 	globals.need_update_plan = True
 	# 原点に移動して次の周回を開始
@@ -97,21 +88,20 @@ def fix_dead():
 		utils.goto(px, py)
 		etype = get_entity_type()
 
-		# パンプキンになったら除外
+		# 収穫可能なPumpkinなら除外
 		if etype == Entities.Pumpkin:
 			globals.pumpkin_dead.remove((px, py))
 			continue
 
-		# また枯れてたら収穫してから植え直し
+		# 枯れてたら収穫してから植え直し
 		if etype == Entities.Dead_Pumpkin:
 			harvest()
 		plant(Entities.Pumpkin)
 
 	if len(globals.pumpkin_dead) > 0:
 		fix_dead()
-		return
-
-	check_and_harvest()
+	else:
+		check_and_harvest()
 
 def check_and_harvest():
 	# (0,0)と(0, last_y)のmeasure()が同じになるまで待機
